@@ -6,13 +6,12 @@ Objective: Time-series classification using baselines methods and DL architechtu
 """
 
 ## TODO:
-
-# - test dropout after maxpooling vs after dense layer only
 # - sample uniformley across classes
-# - somehow add data augmentation
+# - add data augmentation
 # - add pre-extracted temporal features as input to the CNN
 
 # DONE:
+# - test dropout after maxpooling vs after dense layer only -- done, added after every conv and dense layer
 # - compare fit with default parameters (option #1) vs fit with manually specified step_per_epoch and val_steps (option #2) -- same thing, so removed the more verbose manual specification
 # - check why class 0 doesnt get predicted -- problem when batch size is too big (> 32)
 # - organize DL functions to separate common things -- managed to change dropout once model is already defined, so now model definition is before the bug function grid-searching for the best parameters
@@ -21,7 +20,7 @@ Objective: Time-series classification using baselines methods and DL architechtu
 # - check whats wrong with EEG5000 -- the dataset was sorted with label 2 samples all at the end, shuffling solved the problem
 # - test averagepooling vs dense layer -- global average pooling seems to perform better.
 
-## IMPORT MODULES ---------------------------------------------------------------
+## IMPORT MODULES ------------------------------------------------------------------------------------------------------
 
 import os
 import sys
@@ -50,6 +49,9 @@ from TS_DL_architectures import*
 sys.path.insert(0, "C:/Projects/Python/utils/")
 from utils import*
 
+# To see tensor shape when hovering over name
+np.set_string_function(lambda a: str(a.shape), repr=False)
+
 ## See devices to check whether GPU or CPU are being used
 # from tensorflow.python.client import device_lib
 # print(device_lib.list_local_devices())
@@ -60,52 +62,58 @@ PARAMS = {}
 
 PARAMS['verbose'] = True
 
-PARAMS['exp_name'] = r'3datasets'  # Experiment name, to create a separate folder with results, figures, Tensorboard logs, etc.
-# PARAMS['exp_name'] = r'debugging'  # to avoid overwriting files in experiment folders
+# PARAMS['exp_name'] = r'4datasets'  # Experiment name, to create a separate folder with results, figures, Tensorboard logs, etc.
+PARAMS['exp_name'] = r'debugging'  # to avoid overwriting files in experiment folders
 
 PARAMS['run_training'] = True   # if True trains model, if False loads saved model and goes to evalaution on test set
 # PARAMS['run_training'] = False
 
-PARAMS['subsetting'] = False   # subset datasets for testing purposes
+PARAMS['subsetting'] = False   # TODO subset datasets for testing purposes
 
-PARAMS['plot_figures'] = True
-# PARAMS['plot_figures'] = False
+# PARAMS['plot_figures'] = True
+PARAMS['plot_figures'] = False
 
-# PARAMS['datasets'] = ['ElectricDevices', 'ECG5000', 'StarLightCurves']    # 'Adiac'
-PARAMS['datasets'] = ['ElectricDevices']    # 'Adiac'
+# PARAMS['datasets'] = ['UWaveGestureLibraryAll', 'PhalangesOutlinesCorrect', 'ElectricDevices', 'StarLightCurves']    # 'Adiac'
+PARAMS['datasets'] = ['StarLightCurves']    # 'Adiac'
 
-# PARAMS['methods'] = ['kNN', 'RF', 'CNN_gl_avg', 'CNN_fully_connected']  # 'LSTM'
-PARAMS['methods'] = ['RF']  # 'CNN_fully_connected'
+# PARAMS['methods'] = ['kNN', 'RF', 'CNN_gl_avg', 'CNN_fully_connected', 'CNN_LSTM']  # 'CNN_fully_connected' not working as expected
+PARAMS['methods'] = ['CNN_gl_avg']  # 'CNN_fully_connected'
 
 PARAMS['seed'] = 2018
 
 PARAMS['normaliz'] = True
 # PARAMS['normaliz'] = False
 
-PARAMS['pct_val'] = 0.25   # fraction of samples to use as validation set
+# Deep Learning-specific parameters (valid for all DL methods)
+PARAMS['DL'] = {}
+PARAMS['DL']['pct_val'] = 0.25   # fraction of samples to use as validation set
+PARAMS['DL']['val_metric'] = 'val_loss'  # alternatively monitor='val_acc'
+PARAMS['DL']['epochs'] = 2000
+PARAMS['DL']['patience'] = 4  # number of epochs we tolerate the validation accuracy to be stagnant (not larger than current best accuracy), with patience for ReduceLROnPlateau set to np.round(PARAMS['DL']['patience']*0.8)
+PARAMS['DL']['learn_rate'] = 1e-4   # 0.0001 usually gives the best results with Adam, and ReduceLROnPlateau will fine tune it if we get stuck in local minima
 
-# PARAMS['augmentation'] = True   # TODO
+# DL hyperparamters to be tuned by grid
+# PARAMS['DL']['HP'] = {'batch_size_trn': [4, 8, 16],
+#                       'dropout': [0, 0.2, 0.4]}  # dropout 0 means we keep all the units
+PARAMS['DL']['HP'] = {'batch_size_trn': [8],
+                      'dropout': [0]}
 
-PARAMS['val_metric'] = 'val_loss'  # alternatively monitor='val_acc'
-PARAMS['epochs'] = 2000
-# PARAMS['patience'] = 20  # number of epochs we tolerate the validation accuracy to be stagnant (not larger than current best accuracy), with patience for ReduceLROnPlateau set to np.round(PARAMS['patience']*0.8)
-PARAMS['patience'] = 10
+# PARAMS['DL']['augmentation'] = True   # TODO
 
-PARAMS['learn_rate'] = 1e-4   # 0.0001 usually gives the best results with Adam, and ReduceLROnPlateau will fine tune it if we get stuck in local minima
-
-# Hyperparamters to be tuned by grid
-# PARAMS['HP'] = {'batch_size_trn': [2, 4, 8, 16],
-#                 'dropout': [0, 0.2, 0.4, 0.6, 0.8, 0.9]}  # dropout 0 means we keep all the units
-PARAMS['HP'] = {'batch_size_trn': [4, 8, 16],
-                'dropout': [0, 0.5]}
-
+# CV parameters
 PARAMS['nr_folds'] = 5
-PARAMS['k'] = list(range(1, 11))
-# PARAMS['k'] = [1]
-# PARAMS['ntrees'] = [50, 1000]
-PARAMS['ntrees'] = [1000]
-PARAMS['mtry'] = ['sqrt', 'log2', 0.33]   # sqrt corresponds to R's default for classification, 0.33 to R's default for regression
-# PARAMS['mtry'] = ['sqrt']   # sqrt corresponds to R's default for classification, 0.33 to R's default for regression
+
+# kNN-specific parameter
+PARAMS['kNN'] = {}
+PARAMS['kNN']['k'] = list(range(1, 11)) + list(range(15, 31, 5))
+# PARAMS['kNN']['k'] = [1]
+
+# RF-specific parameters
+PARAMS['RF'] = {}
+# PARAMS['RF']['ntrees'] = [50, 1000]
+PARAMS['RF']['ntrees'] = [1000]
+PARAMS['RF']['mtry'] = ['sqrt', 'log2', 0.33]   # sqrt corresponds to R's default for classification, 0.33 to R's default for regression
+# PARAMS['RF']['mtry'] = ['sqrt']   # sqrt corresponds to R's default for classification, 0.33 to R's default for regression
 
 PARAMS['conf_mat_norm'] = False   # whether to normalize confusion by the true totals
 
@@ -143,7 +151,6 @@ def DL_grid_search(trn_data, val_metric, model_name, model, hparams_dict):
     :return grid_search_df: df with gridsearch results
     """
 
-
     X_trn, Y_trn = trn_data
     nr_classes = len(np.unique(Y_trn))
 
@@ -173,19 +180,19 @@ def DL_grid_search(trn_data, val_metric, model_name, model, hparams_dict):
             os.makedirs(log_dir_hparams)
 
             # Earlystopping callback with a given patience
-            earlystop_callback = callbacks.EarlyStopping(monitor=val_metric, mode=val_mode, patience=PARAMS['patience'])  # prefix 'val_' added automatically by Keras (based on name of Loss function)
+            earlystop_callback = callbacks.EarlyStopping(monitor=val_metric, mode=val_mode, patience=PARAMS['DL']['patience'])  # prefix 'val_' added automatically by Keras (based on name of Loss function)
 
             # Tensorboard callback to visualize network/evolution of metrics
             tb_callback = callbacks.TensorBoard(log_dir=log_dir_hparams, write_graph=True)
 
             # Checkpoint callback to save model each time the validation score (loss, acc, etc.) improves
-            best_model_path = os.path.join(PARAMS['dirs']['model'], '%s_%s.hdf5' % (model_name, hparams_str))
+            best_model_path = os.path.join(PARAMS['dirs']['model'], '%s.hdf5' % (hparams_str))
             checkpoint_callback = callbacks.ModelCheckpoint(best_model_path, monitor=val_metric, mode=val_mode, verbose=1, save_best_only=True)
 
             # Learning rate callback to reduce learning rate if val_loss does not improve after patience epochs (divide by 10 each time till a minimum of 0.000001)
             # patience value set to 80% of of the EarlyStopping patience to have ReduceLROnPlateau act first, then if nothing improves for another 20% of patience steps, we stop
             reduce_lr_callback = callbacks.ReduceLROnPlateau(monitor=val_metric, mode=val_mode, factor=0.1,
-                                                             patience=np.ceil(PARAMS['patience']*0.8), min_lr=1e-6,
+                                                             patience=np.ceil(PARAMS['DL']['patience']*0.8), min_lr=1e-6,
                                                              verbose=1)
             # Adapt dropout based on hp
             for layer in model.layers:
@@ -193,9 +200,9 @@ def DL_grid_search(trn_data, val_metric, model_name, model, hparams_dict):
                     layer.rate = do
 
             history = model.fit(x=X_trn, y=Y_trn_one_hot,
-                                epochs=PARAMS['epochs'],
+                                epochs=PARAMS['DL']['epochs'],
                                 batch_size=bs,
-                                validation_split=PARAMS['pct_val'],
+                                validation_split=PARAMS['DL']['pct_val'],
                                 callbacks=[reduce_lr_callback, checkpoint_callback, earlystop_callback, tb_callback],
                                 verbose=2)
 
@@ -212,14 +219,14 @@ def DL_grid_search(trn_data, val_metric, model_name, model, hparams_dict):
                 best_epoch = log.loc[log[val_metric].idxmax]['epoch']
 
             grid_search_list.append({'batch_size': bs, 'dropout': do,
-                                'epoch': best_epoch, 'val_score': best_val_metric,
-                                'model_path': best_model_path})  # fill row entries with dictionary
+                                     'epoch': best_epoch, 'val_score': best_val_metric,
+                                     'model_path': best_model_path})  # fill row entries with dictionary
 
     # Get best values
     grid_search_df = pd.DataFrame(grid_search_list)  # convert to pd dataframe
-    if PARAMS['val_metric'] == 'val_loss':
+    if PARAMS['DL']['val_metric'] == 'val_loss':
         grid_search_df.sort_values(by='val_score', ascending=True, inplace=True)
-    elif PARAMS['val_metric'] == 'val_acc':
+    elif PARAMS['DL']['val_metric'] == 'val_acc':
         grid_search_df.sort_values(by='val_score', ascending=False, inplace=True)
 
     best_model_path = grid_search_df['model_path'].iloc[0]
@@ -289,7 +296,7 @@ if __name__ == '__main__':
 
     K.clear_session()  # release the memory on the GPU
 
-    ## LOOP OVER DATASETS --------------------------------------------------------------------------------------------------
+## LOOP OVER DATASETS --------------------------------------------------------------------------------------------------
 
     RES = {}
     for dataset in PARAMS['datasets']:
@@ -306,6 +313,8 @@ if __name__ == '__main__':
             if not os.path.exists(dir):
                 os.makedirs(dir)
 
+## PREPROCESSING --------------------------------------------------------------------------------------------------
+
         # Read data
         X_train_raw, Y_train_raw = readucr(os.path.join(PARAMS['dirs']['data'], dataset + '/' + dataset + '_TRAIN'))
         X_test_raw, Y_test_raw = readucr(os.path.join(PARAMS['dirs']['data'], dataset + '/' + dataset + '_TEST'))
@@ -319,6 +328,7 @@ if __name__ == '__main__':
         Y_train = (Y_train_raw - Y_train_raw.min()) / (Y_train_raw.max() - Y_train_raw.min()) * (nr_classes - 1)
         Y_test = (Y_test_raw - Y_test_raw.min()) / (Y_test_raw.max() - Y_test_raw.min()) * (nr_classes - 1)
 
+        # Data normalization
         if PARAMS['normaliz']:
             # Compute stats on trn set
             X_train_mean = X_train_raw.mean()
@@ -336,6 +346,9 @@ if __name__ == '__main__':
 
         train_data = (X_train, Y_train)
 
+## PLOT EXPLORATORY FIGURES --------------------------------------------------------------------------------------------------
+
+        # Plot quantiles per class over time (class signatures)
         if PARAMS['plot_figures']:
 
             base_colors = ['b', 'g', 'r', 'c', 'm', 'y', 'k']
@@ -366,7 +379,7 @@ if __name__ == '__main__':
                 plt.close()
 
 
-    ## TRAINING --------------------------------------------------------------------------------------------------
+## TRAIN AND TEST MODELS --------------------------------------------------------------------------------------------------
 
         RES[dataset] = {}   # dictionary containing the results for each dataset
         RES[dataset]['test_res_table'] = []  # list with summary of results to be converted to pd dataframe
@@ -379,19 +392,15 @@ if __name__ == '__main__':
                 if PARAMS['run_training']:
 
                     # Create UNet model (model.summary() shows nr of trainable parameters)
-                    model = TS_CNN().create_model(X_shape=(X_train.shape[1], 1), nr_classes=nr_classes,
+                    model = TS_CNN().create_model(X_shape=(X_train.shape[1], 1),
+                                                  nr_classes=nr_classes,
+                                                  learn_rate=PARAMS['DL']['learn_rate'],
                                                   last_layer='gl_avg_pooling')  # X_shape is nr_features x 1, i.e., an horizontal vector of values at each time step (Input layer does not include the batch size)
 
-                    # Define optimizer and compile
-                    adam = optimizers.Adam(lr=PARAMS['learn_rate'])
-                    model.compile(optimizer=adam,
-                                  loss='categorical_crossentropy',
-                                  metrics=['acc'])
-
                     best_model_path, best_hparams, grid_search = DL_grid_search(trn_data=train_data,
-                                                                                val_metric=PARAMS['val_metric'],
+                                                                                val_metric=PARAMS['DL']['val_metric'],
                                                                                 model=model, model_name=method,
-                                                                                hparams_dict=PARAMS['HP'])
+                                                                                hparams_dict=PARAMS['DL']['HP'])
 
                 else:
 
@@ -410,19 +419,15 @@ if __name__ == '__main__':
                 if PARAMS['run_training']:
 
                     # Create UNet model (model.summary() shows nr of trainable parameters)
-                    model = TS_CNN().create_model(X_shape=(X_train.shape[1], 1), nr_classes=nr_classes,
+                    model = TS_CNN().create_model(X_shape=(X_train.shape[1], 1),
+                                                  nr_classes=nr_classes,
+                                                  learn_rate=PARAMS['DL']['learn_rate'],
                                                   last_layer='fully_connected')
 
-                    # Define optimizer and compile
-                    adam = optimizers.Adam(lr=PARAMS['learn_rate'])
-                    model.compile(optimizer=adam,
-                                  loss='categorical_crossentropy',
-                                  metrics=['acc'])
-
                     best_model_path, best_hparams, grid_search = DL_grid_search(trn_data=train_data,
-                                                                                val_metric=PARAMS['val_metric'],
+                                                                                val_metric=PARAMS['DL']['val_metric'],
                                                                                 model=model, model_name=method,
-                                                                                hparams_dict=PARAMS['HP'])
+                                                                                hparams_dict=PARAMS['DL']['HP'])
 
                 else:
 
@@ -436,24 +441,20 @@ if __name__ == '__main__':
                 # Apply model on test set (columns are containing labels in case of time-series)
                 Y_test_pred = predict_DL(best_model, X_tst=X_test, axis_labels=1)
 
-            elif method == 'LSTM':
+            elif method == 'CNN_LSTM':
 
                 if PARAMS['run_training']:
 
                     # Create UNet model (model.summary() shows nr of trainable parameters)
-                    model = TS_LSTM().create_model(X_shape=(X_train.shape[1], 1), nr_classes=nr_classes,
-                                                  last_layer='fully_connected')
-
-                    # Define optimizer and compile
-                    adam = optimizers.Adam(lr=PARAMS['learn_rate'])
-                    model.compile(optimizer=adam,
-                                  loss='categorical_crossentropy',
-                                  metrics=['acc'])
+                    model = TS_CNN().create_model(X_shape=(X_train.shape[1], 1),
+                                                  nr_classes=nr_classes,
+                                                  learn_rate=PARAMS['DL']['learn_rate'],
+                                                  last_layer='LSTM')
 
                     best_model_path, best_hparams, grid_search = DL_grid_search(trn_data=train_data,
-                                                                                val_metric=PARAMS['val_metric'],
+                                                                                val_metric=PARAMS['DL']['val_metric'],
                                                                                 model=model, model_name=method,
-                                                                                hparams_dict=PARAMS['HP'])
+                                                                                hparams_dict=PARAMS['DL']['HP'])
 
                 else:
 
@@ -475,7 +476,7 @@ if __name__ == '__main__':
 
                     # Train RF and save model
                     rf = RandomForestClassifier(random_state=PARAMS['seed'], n_jobs=-1)
-                    param_grid = dict(n_estimators=PARAMS['ntrees'], max_features=PARAMS['mtry'])
+                    param_grid = dict(n_estimators=PARAMS['RF']['ntrees'], max_features=PARAMS['RF']['mtry'])
                     grid_search = GridSearchCV(rf, param_grid, cv=PARAMS['nr_folds'], scoring='accuracy')  # n_jobs=-1 might interfere with the same paramter set for the classifier
                     grid_search.fit(X=X_train, y=Y_train)
                     rf_best = grid_search.best_estimator_
@@ -500,7 +501,7 @@ if __name__ == '__main__':
                 if PARAMS['run_training']:
 
                     knn = KNeighborsClassifier(n_jobs=-1)
-                    param_grid = dict(n_neighbors=PARAMS['k'])
+                    param_grid = dict(n_neighbors=PARAMS['kNN']['k'])
                     grid_search = GridSearchCV(knn, param_grid, cv=PARAMS['nr_folds'], scoring='accuracy')
                     grid_search.fit(X=X_train, y=Y_train)
                     knn_best = grid_search.best_estimator_
@@ -525,14 +526,20 @@ if __name__ == '__main__':
             res_dict = assess_classif(Y_test, Y_test_pred, normalize_conf_mat=PARAMS['conf_mat_norm'], verbose=PARAMS['verbose'])
             RES[dataset][method]['test_results'] = res_dict
             RES[dataset]['test_res_table'].append({'Method': method,
-                                          'OA': res_dict['OA'],
-                                          'Kappa': res_dict['Kappa'],
-                                          'Mean_F1_score': res_dict['Mean_F1_score'],
-                                          'BestHParams': best_hparams})
+                                                   'OA': res_dict['OA'],
+                                                   'Kappa': res_dict['Kappa'],
+                                                   'Mean_F1_score': res_dict['Mean_F1_score'],
+                                                   'BestHParams': best_hparams})
 
+        # Convert to df, sort values and rearrange columns
         RES[dataset]['test_res_table'] = pd.DataFrame(RES[dataset]['test_res_table'])  # convert to pd dataframe
         RES[dataset]['test_res_table'].sort_values(by='OA', ascending=False, inplace=True)
         RES[dataset]['test_res_table'] = RES[dataset]['test_res_table'][['Method', 'OA', 'Kappa', 'Mean_F1_score', 'BestHParams']]
+
+        # Save results for this dataset in results folder in a binary pickle file (to avoid having to serialize arrays)
+        res_filename = 'RES_%s.pkl' % (PARAMS['exp_name'])
+        with open(os.path.join(PARAMS['dirs']['res'], res_filename), 'wb') as f:
+            pickle.dump(RES, f)
 
     # Convert to list any possible np array for json.dump() to work
     for key, val in PARAMS.items():
@@ -544,210 +551,12 @@ if __name__ == '__main__':
     with open(os.path.join(PARAMS['dirs']['res'], params_filename), 'w') as fp:
         json.dump(PARAMS, fp)
 
-    # Save results of this run in results folder in a binary pickle file (to avoid having to serialize arrays)
-    res_filename = 'RES_%s.pkl' % (PARAMS['exp_name'])
-    with open(os.path.join(PARAMS['dirs']['res'], res_filename), 'wb') as f:
-        pickle.dump(RES, f)
-
     print('Total ' + toc(start_time))
 
     bla = 1
 
+# Reload some old results dictionary
+with open('C:/Projects/Trials/TimeSeriesClassif/wkg/4datasets/Results/RES_4datasets.pkl', 'rb') as f: # 'r' for reading; can be omitted
+    RES_OLD = pickle.load(f)         # load file content as mydict
 
 
-
-
-## TODO TODEL -----------------------
-
-# # Convert to list any possible np array for json.dump() to work
-# def serialize_recursive(nested_dict):
-#     for key, val in nested_dict.items():
-#         if isinstance(val, np.ndarray):
-#             nested_dict[key] = val.tolist()
-#         elif isinstance(val, dict):
-#             nested_dict[key] = serialize_recursive(nested_dict)
-#     return nested_dict
-
-# Non-overlapping patches:
-# height_padded = PARAMS['patch_size']*(np.ceil(height / PARAMS['patch_size'])).astype(np.int)
-# width_padded = PARAMS['patch_size']*(np.ceil(width / PARAMS['patch_size'])).astype(np.int)
-# Y_tst_pred_map_full = np.empty([height_padded, width_padded])  # to accomodate patches that would go over the border of the image
-# p = 0
-# for h in range(0, height_padded, PARAMS['patch_size']):
-#     for w in range(0, width_padded, PARAMS['patch_size']):
-#         Y_tst_pred_map_full[h:h+PARAMS['patch_size'], w:w+PARAMS['patch_size']] = Y_tst_pred_map_3D_area[p, :, :]
-#         p += 1
-# Y_tst_pred_map_full = Y_tst_pred_map_full[:height, :width]  # to reclip it back to its original size
-
-# Overlapping patches:
-# stride = PARAMS['patch_size_out']
-# height, width = gt.shape
-# height_padded = (stride * (np.ceil((height - PARAMS['patch_size']) / stride)) + PARAMS['patch_size_out']).astype(np.int)
-# width_padded = (stride * (np.ceil((width - PARAMS['patch_size']) / stride)) + PARAMS['patch_size']).astype(np.int)
-
-# height_padded = (stride * (np.ceil((height-PARAMS['patch_size'])/stride)) + stride).astype(np.int)
-# width_padded = (stride * (np.ceil((width-PARAMS['patch_size'])/stride)) + stride).astype(np.int)
-
-# ---------------------------
-
-# padding_ht = height_padded - height
-# padding_wt = width_padded - width
-# if padding_ht < overlap | padding_wt < overlap:
-#     print('Overlap = %g: padding_ht %g, padding_wt = %g', overlap, padding_ht, padding_wt)
-#     break
-# offset_ht = np.floor(padding_ht / 2)
-# offset_wt = np.floor(padding_wt / 2)
-#
-# gt_padded = np.zeros((height_padded, width_padded))  # use ones to have a valid class for padding (Impervious surfaces)
-# gt_padded[offset_ht:offset_ht+gt.shape[0], offset_wt:offset_wt+gt.shape[1]] = gt
-
-# ---------------------------
-
-# if PARAMS['nr_conv_3x3'] > 0:
-#     height_clipped = height_padded - overlap
-#     width_clipped = width_padded - overlap
-#     Y_tst_pred_map_3D_area_clipped = Y_tst_pred_map_3D_area[:, PARAMS['nr_conv_3x3']:-PARAMS['nr_conv_3x3'], PARAMS['nr_conv_3x3']:-PARAMS['nr_conv_3x3']]
-#     gt_clipped = gt_padded[PARAMS['nr_conv_3x3']:-PARAMS['nr_conv_3x3'], PARAMS['nr_conv_3x3']:-PARAMS['nr_conv_3x3']]
-#
-# elif PARAMS['nr_conv_3x3'] == 0:
-#     height_clipped = height_padded
-#     width_clipped = width_padded
-#     Y_tst_pred_map_3D_area_clipped = Y_tst_pred_map_3D_area
-#     gt_clipped = gt_padded
-
-
-# ---------------------------------------------------------
-
-# cannot use flow_from_directory() because then GT is a 2D tensor (as grey scale PNG image,
-# only format accepted as we're using the ImageDataGenerator class) and we would need to have the one-hot transform in Keras
-#  train_generator_X = X_datagen_trn.flow_from_directory(os.path.join(PARAMS['dirs']['data'], "trn", "X"),
-#     target_size=(PARAMS['patch_size'], PARAMS['patch_size']),
-#     color_mode=color_mode,
-#     batch_size=hparams['bs'],
-#     class_mode=None, seed=PARAMS['seed'])   # add shuffle=False if we want the iterator to go through the samples in a sequantial fashion
-# train_generator_Y = Y_datagen_trn.flow_from_directory(os.path.join(PARAMS['dirs']['data'], "trn", "Y"),
-#     target_size=(PARAMS['patch_size'], PARAMS['patch_size']),
-#     color_mode='grayscale',
-#     batch_size=hparams['bs'],
-#     class_mode=None, seed=PARAMS['seed'])   # class_mode to be set to None as we want the image to be yield
-# train_generator = zip(train_generator_X, train_generator_Y)
-#
-# val_generator_X = X_datagen_trn.flow_from_directory(os.path.join(PARAMS['dirs']['data'], "val", "X"),
-#                                                   target_size=(PARAMS['patch_size'], PARAMS['patch_size']),
-#                                                   color_mode=color_mode,
-#                                                   batch_size=PARAMS['batch_size_val'],
-#                                                   class_mode=None, seed=PARAMS['seed'])
-# val_generator_Y = Y_datagen_trn.flow_from_directory(os.path.join(PARAMS['dirs']['data'], "val", "Y"),
-#                                                   target_size=(PARAMS['patch_size'], PARAMS['patch_size']),
-#                                                   color_mode='grayscale',
-#                                                   batch_size=PARAMS['batch_size_val'],
-#                                                   class_mode=None, seed=PARAMS['seed'])
-# val_generator = zip(val_generator_X, val_generator_Y)
-
-# # Check generator to see if images in the batches make sense
-# nr_steps = 8
-# for ds in ['trn', 'val']:
-#     if ds == 'trn':
-#         generator = train_generator
-#     else:
-#         generator = val_generator
-#     for b in range(nr_steps):
-#         X_batch, Y_batch = next(generator)
-#         Y_batch_GT = np.argmax(Y_batch, axis=3) + 1
-#         # if (b == 0) | ((b+1) % 1991 == 0):
-#         nr_imgs = X_batch.shape[0]
-#         for i in range(nr_imgs):
-#             f, a = plt.subplots(1, 2)
-#             a[0].imshow(X_batch[i])
-#             a[0].set_title('X')
-#             a[1].imshow(np.squeeze(Y_batch_GT[i]), cmap=cmap, norm=norm)
-#             a[1].set_title('Y')
-#             plt.savefig(os.path.join(PARAMS['dirs']['fig'], 'checks', 'generators', '%s_batch%d_img%d.png' % (ds, b, i)))
-#             plt.close()
-
-
-# # TRN generators
-#
-# # X-specific arguments  TODO to add rotation_range=90. , shears and noise
-# data_gen_args_X_trn = dict(horizontal_flip=PARAMS['augmentation'],
-#                            vertical_flip=PARAMS['augmentation'],
-#                            featurewise_center=PARAMS['normaliz'],
-#                            featurewise_std_normalization=PARAMS['normaliz'])
-#
-# # TODO TODEL Y-specific arguments, not needed as X_datagen_trn will consider only X as the images to augment
-# # Y_datagen_trn = ImageDataGenerator(**data_gen_args_Y_trn)
-# # data_gen_args_Y_trn = dict(horizontal_flip=PARAMS['augmentation'],
-# #                            vertical_flip=PARAMS['augmentation'])
-#
-# X_datagen_trn = ImageDataGenerator(**data_gen_args_X_trn)
-#
-# # List all training image patch names sorted by area then by patch number
-# patches_names_trn = os.listdir(os.path.join(PARAMS['dirs']['data'], "trn", "X", '0'))
-# patches_names_trn_sorted = sort_patch_names(patches_names_trn, PARAMS['trn_ID'])
-# nr_patches_trn = len(patches_names_trn_sorted)
-#
-# # Load training image patches in a 4D matrix
-# X_trn = np.empty([nr_patches_trn, PARAMS['patch_size'], PARAMS['patch_size'], PARAMS['nr_bands']]).astype(np.uint8)
-# for i, patch_name in enumerate(patches_names_trn_sorted):
-#     X_trn[i, :, :, :] = imread(os.path.join(PARAMS['dirs']['data'], "trn", "X", '0', patch_name)).astype(np.uint8)
-#
-# # Randomly sample a subset of the training patches to compute statistics to normalize data
-# # nr_patches_stats_trn = np.round(PARAMS['pct_patches_stats']*nr_patches_trn).astype(np.int)
-# # patches_rand_names_trn = [patches_names_trn_sorted[i] for i in sorted(random.sample(range(nr_patches_trn), nr_patches_stats_trn))]
-# X_stats_trn = X_trn  # TODO change back to a smaller X_stats_trn
-#
-# # Fit training generator on training set subsample
-# X_datagen_trn.fit(X_stats_trn, seed=PARAMS['seed'])
-#
-# # Load training GT in a 4D matrix and convert to one-hot format
-# Y_trn = np.empty([nr_patches_trn, PARAMS['patch_size'], PARAMS['patch_size'], PARAMS['nr_classes']])
-# for i, patch_name in enumerate(patches_names_trn_sorted):
-#     gt = imread(os.path.join(PARAMS['dirs']['data'], "trn", "Y", '0', patch_name.replace('X_', 'Y_')))
-#     Y_trn[i, :, :, :] = map_2_one_hot(gt, PARAMS['nr_classes'])
-#
-# # Crop to central region only (border_bef is found based on analysis of the tensor shapes in Keras model definition)
-# size_diff = PARAMS['patch_size'] - PARAMS['patch_size_out']
-# border_bef = np.floor(size_diff / 2).astype(np.int)
-# Y_trn_cropped = Y_trn[:, border_bef:border_bef+PARAMS['patch_size_out'], border_bef:border_bef+PARAMS['patch_size_out'], :]
-#
-# # Subset data for testing pruposes
-# if PARAMS['subsetting']:
-#     nr_patches_trn = 4
-#     X_trn = X_trn[0:nr_patches_trn, :, :, :]
-#     Y_trn_cropped = Y_trn_cropped[0:nr_patches_trn, :, :, :]
-#
-# train_generator = X_datagen_trn.flow(x=X_trn, y=Y_trn_cropped, seed=PARAMS['seed'])  # add shuffle=False if we want the iterator to go through the samples in a sequantial fashion
-#
-# # VAL generators
-#
-# # X-specific arguments (no Y-specific arguments as we do not augment the validation set)
-# data_gen_args_X_val = dict(featurewise_center=PARAMS['normaliz'],
-#                            featurewise_std_normalization=PARAMS['normaliz'])
-#
-# X_datagen_val = ImageDataGenerator(**data_gen_args_X_val)
-#
-# # Fit validation generator on same training set subsample
-# X_datagen_val.fit(X_stats_trn, seed=PARAMS['seed'])
-#
-# # List all validation image patch names sorted by area then by patch number (to allow repositioning them in the right spot when retiling)
-# patches_names_val = os.listdir(os.path.join(PARAMS['dirs']['data'], "val", "X", '0'))
-# patches_names_val_sorted = sort_patch_names(patches_names_val, PARAMS['val_ID'])
-# nr_patches_val = len(patches_names_val_sorted)
-#
-# # Load validation image patches in a 4D matrix
-# X_val = np.empty([nr_patches_val, PARAMS['patch_size'], PARAMS['patch_size'], PARAMS['nr_bands']])
-# for i, patch_name in enumerate(patches_names_val_sorted):
-#     X_val[i, :, :, :] = imread(os.path.join(PARAMS['dirs']['data'], "val", "X", '0', patch_name))
-#
-# # Load validation GT in a 4D matrix and convert to one-hot format
-# Y_val = np.empty([nr_patches_val, PARAMS['patch_size'], PARAMS['patch_size'], PARAMS['nr_classes']])
-# for i, patch_name in enumerate(patches_names_val_sorted):
-#     gt = imread(os.path.join(PARAMS['dirs']['data'], "val", "Y", '0', patch_name.replace('X_', 'Y_')))
-#     Y_val[i, :, :, :] = map_2_one_hot(gt, PARAMS['nr_classes'])
-#
-# # Crop to central region only (border_bef is found based on analysis of the tensor shapes in Keras model definition)
-# Y_val_cropped = Y_val[:, border_bef:border_bef+PARAMS['patch_size_out'], border_bef:border_bef+PARAMS['patch_size_out'], :]
-#
-# val_generator = X_datagen_val.flow(x=X_val, y=Y_val_cropped,
-#                                    batch_size=PARAMS['batch_size_val'],
-#                                    seed=PARAMS['seed'])   # add shuffle=False if we want the iterator to go through the samples in a sequantial fashion
